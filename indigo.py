@@ -12,6 +12,7 @@ class Indigo:
         "Referer": "https://book.goindigo.in/",
         }
     error = ""
+    response_json = {}
 
     def __init__(self, source="BLR", destination="HYD", date=datetime.today() + timedelta(days=5)):
         self.source = source
@@ -41,7 +42,7 @@ class Indigo:
         if r.status_code == 404:
             self.error = "404 error"
             return False
-        elif r.text.find("price") > 0:
+        elif r.text.find("<div class=\"price-itinerary\">") > 0:
             soup = BeautifulSoup(r.text)
             self.__getDetails(soup)
             return True
@@ -51,7 +52,36 @@ class Indigo:
 
     def __getDetails(self, soup):
         #set response_json here
-        return False
+        self.response_json["source"] = self.source
+        self.response_json["destination"] = self.destination
+        self.response_json["checked_time"] = datetime.today()
+        self.response_json["date"] = self.date
+        result_table = soup.find("table", {"class":"availability-result-table group"})
+        flights = []
+        for row in result_table.find_all("tr"):
+            tds = row.find_all("td")
+            if len(tds) > 3:
+                flight_object = {
+                    "flight_number" : [],
+                    "departure_time" : [],
+                    "arrival_time" : []
+                }
+                for flight_number in tds[0].text.split("\n"):
+                    if len(flight_number.strip()) > 0:
+                        flight_object["flight_number"].append(flight_number.strip())
+                flight_object["flight_number"] = self.get_multiple_data_from_text(tds[0].text.strip())
+                flight_object["departure_time"] = self.get_multiple_data_from_text(tds[1].text.strip())
+                flight_object["arrival_time"] = self.get_multiple_data_from_text(tds[2].text.strip())
+                flight_object["regular_fare"] = float(re.sub(',','',re.findall('[\d,.]+',tds[3].text.strip())[0]))
+                flights.append(flight_object)
+        self.response_json["flights"] = flights
+
+    def get_multiple_data_from_text(self, text):
+        result = []
+        for ind_object in text.split("\n"):
+            if len(ind_object.strip()) > 0:
+                result.append(re.sub(' +',' ',ind_object.strip()))
+        return result
 
     def get_json(self):
         return self.response_json
