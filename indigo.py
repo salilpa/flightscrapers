@@ -34,8 +34,9 @@ class Indigo:
         request_data["indiGoPromoAuthenticationData.CustomerNumber"] = ""
         request_data["indiGoOneWaySearch.IsArmedForces"] = "false"
         request_data["indiGoOneWaySearch_Submit"] = "Search"
+        self.session = requests.Session()
         try:
-            r = requests.post(Indigo.url, request_data, headers=Indigo.headers)
+            r = self.session.post(Indigo.url, request_data, headers=Indigo.headers)
         except requests.exceptions.RequestException as e:
             self.error = str(e)
             return False
@@ -72,7 +73,20 @@ class Indigo:
                 flight_object["flight_number"] = self.get_multiple_data_from_text(tds[0].text.strip())
                 flight_object["departure_time"] = self.get_multiple_data_from_text(tds[1].text.strip())
                 flight_object["arrival_time"] = self.get_multiple_data_from_text(tds[2].text.strip())
-                flight_object["regular_fare"] = float(re.sub(',','',re.findall('[\d,.]+',tds[3].text.strip())[0]))
+                flight_object["regular_fare"] = self.extract_numbers(tds[3])
+                fare_url = "https://book.goindigo.in/Flight/PriceItinerary?SellKeys[]=" + tds[3].find_all("input")[0]["value"]
+                fares = self.get_fare_details(fare_url)
+                if fares:
+                    fare_soup = BeautifulSoup(fares)
+                    taxes = {}
+                    taxes_row = fare_soup.find("table", {"class" : "price-itinerary-breakdown"}).find_all("tr")
+                    for rows in taxes_row:
+                        if rows.find("td",{"class" : "right"}):
+                            table_values = rows.find_all("td")
+                            taxes[table_values[0].text] = self.extract_numbers(table_values[1])
+                    total_price = self.extract_numbers(fare_soup.find("p",{"class" : "price-itinerary-total-price"}))
+                    flight_object["total_price"] = total_price
+                    flight_object["taxes"] = taxes
                 flights.append(flight_object)
         self.response_json["flights"] = flights
 
@@ -86,4 +100,20 @@ class Indigo:
     def get_json(self):
         return self.response_json
 
+    def get_fare_details(self, url, retry=3):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:19.0) Gecko/20100101 Firefox/19.0",
+            "Origin": "book.goindigo.in",
+            "Referer": "https://book.goindigo.in/Flight/Select",
+            }
+        r = self.session.get(url, headers=headers)
+        while retry > 0 and r.status_code != 200:
+            r = self.session.get(url, headers=headers)
+            retry -= 1
+        if r.status_code == 200:
+            return r.text
+        else:
+            return False
+    def extract_numbers(self,soup):
+        return float(re.sub(',','',re.findall('[\d,.]+',soup.text.strip())[0]))
 
